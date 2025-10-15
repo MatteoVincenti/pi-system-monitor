@@ -1,0 +1,376 @@
+// Alloy Configuration for PiMonitor
+// Comprehensive log collection following Grafana's best practices
+
+// =============================================================================
+// System Log Collection
+// =============================================================================
+
+// System logs discovery
+local.file_match "system_logs" {
+    path_targets = [
+        {
+            __address__ = "localhost",
+            __path__    = "/var/log/syslog",
+            job         = "syslog",
+            log_type    = "system",
+        },
+        {
+            __address__ = "localhost", 
+            __path__    = "/var/log/auth.log",
+            job         = "auth",
+            log_type    = "security",
+        },
+        {
+            __address__ = "localhost",
+            __path__    = "/var/log/kern.log", 
+            job         = "kernel",
+            log_type    = "system",
+        },
+        {
+            __address__ = "localhost",
+            __path__    = "/var/log/daemon.log",
+            job         = "daemon",
+            log_type    = "system", 
+        },
+        {
+            __address__ = "localhost",
+            __path__    = "/var/log/cron.log",
+            job         = "cron",
+            log_type    = "system",
+        },
+        {
+            __address__ = "localhost",
+            __path__    = "/var/log/mail.log",
+            job         = "mail",
+            log_type    = "system",
+        },
+    ]
+}
+
+// System log processing with structured parsing
+loki.source.file "system_logs" {
+    targets    = local.file_match.system_logs.targets
+    forward_to = [loki.process.system_parser.receiver]
+    
+    // Position tracking for reliable log ingestion
+    legacy_positions_file = "/var/lib/alloy/positions/system.yaml"
+}
+
+// System log parsing and enrichment
+loki.process "system_parser" {
+    forward_to = [loki.write.default.receiver]
+    
+    // Parse syslog format
+    stage.regex {
+        expression = "^(?P<timestamp>\\w+\\s+\\d+\\s+\\d+:\\d+:\\d+)\\s+(?P<hostname>\\S+)\\s+(?P<process>\\S+?)(?:\\[(?P<pid>\\d+)\\])?:\\s*(?P<message>.*)"
+    }
+    
+    // Add structured labels
+    stage.labels {
+        values = {
+            hostname = "",
+            process  = "",
+            pid      = "",
+        }
+    }
+    
+    // Parse log levels from message content
+    stage.regex {
+        expression = "(?i)(?P<level>error|warn|warning|info|debug|trace|fatal|critical)"
+        source     = "message"
+    }
+    
+    stage.labels {
+        values = {
+            level = "",
+        }
+    }
+    
+    // Add timestamp parsing
+    stage.timestamp {
+        source = "timestamp"
+        format = "Jan 2 15:04:05"
+    }
+}
+
+// =============================================================================
+// Docker Container Log Collection
+// =============================================================================
+
+// Docker container discovery
+discovery.docker "containers" {
+    host             = "unix:///var/run/docker.sock"
+    refresh_interval = "5s"
+    
+    filter {
+        name   = "label"
+        values = ["logging!=disabled"]
+    }
+}
+
+// Docker log collection with automatic labeling
+loki.source.docker "containers" {
+    host       = "unix:///var/run/docker.sock"
+    targets    = discovery.docker.containers.targets
+    forward_to = [loki.process.docker_parser.receiver]
+    
+    // Relabeling for better organization
+    relabel_rules = rule {
+        source_labels = ["__meta_docker_container_name"]
+        target_label  = "container"
+        regex         = "/(.*)"
+        replacement   = "${1}"
+    }
+    
+    relabel_rules = rule {
+        source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label  = "service"
+    }
+    
+    relabel_rules = rule {
+        source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+        target_label  = "project"
+    }
+    
+    relabel_rules = rule {
+        source_labels = ["__meta_docker_container_image"]
+        target_label  = "image"
+    }
+}
+
+// Docker log processing and enrichment
+loki.process "docker_parser" {
+    forward_to = [loki.write.default.receiver]
+    
+    // Parse JSON logs from Docker
+    stage.json {
+        expressions = {
+            timestamp = "time",
+            message   = "log",
+            stream    = "stream",
+        }
+    }
+    
+    // Parse application-specific log formats
+    stage.match {
+        selector = "{container=~\".*grafana.*\"}"
+        
+        stage.regex {
+            expression = "t=(?P<timestamp>\\S+)\\s+lvl=(?P<level>\\S+)\\s+msg=\"(?P<message>.*?)\""
+        }
+        
+        stage.labels {
+            values = {
+                level = "",
+            }
+        }
+    }
+    
+    // Parse Prometheus logs
+    stage.match {
+        selector = "{container=~\".*prometheus.*\"}"
+        
+        stage.regex {
+            expression = "level=(?P<level>\\w+)\\s+ts=(?P<timestamp>\\S+)\\s+caller=(?P<caller>\\S+)\\s+msg=\"(?P<message>.*?)\""
+        }
+        
+        stage.labels {
+            values = {
+                level  = "",
+                caller = "",
+            }
+        }
+    }
+    
+    // Parse InfluxDB logs
+    stage.match {
+        selector = "{container=~\".*influxdb.*\"}"
+        
+        stage.regex {
+            expression = "(?P<timestamp>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d+Z)\\s+(?P<level>\\w+)\\s+(?P<message>.*)"
+        }
+        
+        stage.labels {
+            values = {
+                level = "",
+            }
+        }
+    }
+    
+    // Add common labels for all containers
+    stage.labels {
+        values = {
+            log_type = "container",
+        }
+    }
+    
+    // Timestamp parsing for Docker logs
+    stage.timestamp {
+        source = "timestamp"
+        format = "RFC3339"
+    }
+}
+
+// =============================================================================
+// Application Log Collection
+// =============================================================================
+
+// Application logs from mounted directories
+local.file_match "app_logs" {
+    path_targets = [
+        {
+            __address__ = "localhost",
+            __path__    = "/app/logs/*.log",
+            job         = "pimonitor",
+            service     = "pimonitor",
+            log_type    = "application",
+        },
+        {
+            __address__ = "localhost",
+            __path__    = "/app/logs/error/*.log", 
+            job         = "pimonitor-errors",
+            service     = "pimonitor",
+            log_type    = "error",
+        },
+    ]
+}
+
+// Application log processing
+loki.source.file "app_logs" {
+    targets    = local.file_match.app_logs.targets
+    forward_to = [loki.process.app_parser.receiver]
+    
+    legacy_positions_file = "/var/lib/alloy/positions/app.yaml"
+}
+
+// Application log parsing
+loki.process "app_parser" {
+    forward_to = [loki.write.default.receiver]
+    
+    // Parse structured JSON logs
+    stage.json {
+        expressions = {
+            timestamp = "timestamp",
+            level     = "level", 
+            message   = "message",
+            component = "component",
+            trace_id  = "trace_id",
+        }
+    }
+    
+    // Parse plain text logs with common patterns
+    stage.regex {
+        expression = "^(?P<timestamp>\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+\\[(?P<level>\\w+)\\]\\s+(?P<message>.*)"
+    }
+    
+    // Add labels for structured querying
+    stage.labels {
+        values = {
+            level     = "",
+            component = "",
+        }
+    }
+    
+    // Timestamp parsing
+    stage.timestamp {
+        source = "timestamp"
+        format = "2006-01-02 15:04:05"
+    }
+}
+
+// =============================================================================
+// Metrics Collection from Logs
+// =============================================================================
+
+// Extract metrics from log patterns
+loki.process "metrics_extraction" {
+    forward_to = [loki.write.default.receiver]
+    
+    // Count error logs by service
+    stage.metrics {
+        metric.counter {
+            name        = "log_errors_total"
+            description = "Total number of error logs"
+            
+            action = "inc"
+            match_all = true
+        }
+    }
+    
+    // Track response times from access logs
+    stage.regex {
+        expression = "response_time=(?P<response_time>\\d+)"
+    }
+    
+    stage.metrics {
+        metric.histogram {
+            name        = "log_response_time_seconds"
+            description = "Response time from logs"
+            buckets     = [0.1, 0.5, 1.0, 2.0, 5.0]
+            
+            value  = "response_time"
+            action = "observe"
+        }
+    }
+}
+
+// =============================================================================
+// Log Output Configuration
+// =============================================================================
+
+// Primary Loki endpoint with retry and batching
+loki.write "default" {
+    endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+        
+        // Authentication (if needed)
+        // basic_auth {
+        //     username = "admin"
+        //     password = "password"
+        // }
+        
+        // TLS configuration (if needed)
+        // tls_config {
+        //     insecure_skip_verify = false
+        // }
+    }
+    
+    // External labels for all logs
+    external_labels = {
+        cluster   = "pimonitor",
+        env       = "production",
+        collector = "alloy",
+    }
+    
+    // Batching configuration for performance
+    wal {
+        enabled = true
+        dir     = "/var/lib/alloy/wal"
+    }
+}
+
+// =============================================================================
+// Health and Monitoring
+// =============================================================================
+
+// Self-monitoring for Alloy
+logging {
+    level  = "info"
+    format = "logfmt"
+}
+
+// Expose metrics for Prometheus scraping
+prometheus.exporter.self "alloy" { }
+
+// Scrape self-metrics
+prometheus.scrape "alloy" {
+    targets    = prometheus.exporter.self.alloy.targets
+    forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// Send metrics to Prometheus
+prometheus.remote_write "default" {
+    endpoint {
+        url = "http://prometheus:9090/api/v1/write"
+    }
+}

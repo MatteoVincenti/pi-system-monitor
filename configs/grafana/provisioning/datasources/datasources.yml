@@ -1,0 +1,40 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    database: telegraf
+    user: admin
+    secureJsonData:
+      token: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
+    jsonData:
+      version: Flux
+      organization: ${DOCKER_INFLUXDB_INIT_ORG}
+      defaultBucket: ${DOCKER_INFLUXDB_INIT_BUCKET}
+      tlsSkipVerify: true
+    isDefault: true
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    jsonData:
+      timeInterval: 5s
+      queryTimeout: 60s
+      httpMethod: POST
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: prometheus
+          matcherRegex: "traceID=(\\w+)"
+          name: TraceID
+          url: "$${__value.raw}"

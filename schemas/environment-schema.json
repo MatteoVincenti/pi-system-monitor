@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0",
+  "title": "PiMonitor Environment Configuration Schema",
+  "description": "Validation schema for PiMonitor environment variables",
+  "type": "object",
+  "properties": {
+    "COMPOSE_PROJECT_NAME": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "minLength": 1,
+      "maxLength": 50,
+      "description": "Docker Compose project name"
+    },
+    "ENVIRONMENT": {
+      "type": "string",
+      "enum": ["development", "production", "staging"],
+      "description": "Deployment environment"
+    },
+    "GRAFANA_PORT": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "Grafana web interface port"
+    },
+    "INFLUXDB_PORT": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "InfluxDB API port"
+    },
+    "PROMETHEUS_PORT": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "Prometheus web interface port"
+    },
+    "LOKI_PORT": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "Loki API port"
+    },
+    "ALLOY_PORT": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535,
+      "description": "Alloy web interface port"
+    },
+    "GRAFANA_ADMIN_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Grafana admin password (minimum 8 characters)"
+    },
+    "INFLUXDB_ADMIN_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "InfluxDB admin password"
+    },
+    "INFLUXDB_ADMIN_TOKEN": {
+      "type": "string",
+      "minLength": 32,
+      "description": "InfluxDB admin token"
+    },
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error", "fatal"],
+      "description": "Global log level"
+    },
+    "GRAFANA_MEMORY_LIMIT": {
+      "type": "string",
+      "pattern": "^[0-9]+[kmgKMG]?$",
+      "description": "Grafana memory limit (e.g., 512m, 1g)"
+    },
+    "INFLUXDB_MEMORY_LIMIT": {
+      "type": "string",
+      "pattern": "^[0-9]+[kmgKMG]?$",
+      "description": "InfluxDB memory limit"
+    },
+    "PROMETHEUS_MEMORY_LIMIT": {
+      "type": "string",
+      "pattern": "^[0-9]+[kmgKMG]?$",
+      "description": "Prometheus memory limit"
+    },
+    "LOKI_MEMORY_LIMIT": {
+      "type": "string",
+      "pattern": "^[0-9]+[kmgKMG]?$",
+      "description": "Loki memory limit"
+    },
+    "TELEGRAF_INTERVAL": {
+      "type": "string",
+      "pattern": "^[0-9]+[smhd]?$",
+      "description": "Telegraf collection interval (e.g., 10s, 1m)"
+    },
+    "BACKUP_ENABLED": {
+      "type": "boolean",
+      "description": "Enable automatic backups"
+    },
+    "BACKUP_RETENTION_DAYS": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 365,
+      "description": "Backup retention period in days"
+    },
+    "ENABLE_HTTPS": {
+      "type": "boolean",
+      "description": "Enable HTTPS"
+    },
+    "GRAFANA_ALLOW_SIGN_UP": {
+      "type": "boolean",
+      "description": "Allow user sign up in Grafana"
+    },
+    "GRAFANA_ANONYMOUS_ENABLED": {
+      "type": "boolean",
+      "description": "Enable anonymous access in Grafana"
+    }
+  },
+  "required": [
+    "COMPOSE_PROJECT_NAME",
+    "ENVIRONMENT",
+    "GRAFANA_PORT",
+    "INFLUXDB_PORT",
+    "PROMETHEUS_PORT",
+    "LOKI_PORT",
+    "ALLOY_PORT"
+  ],
+  "production_requirements": {
+    "required_additional": ["GRAFANA_ADMIN_PASSWORD", "INFLUXDB_ADMIN_PASSWORD", "INFLUXDB_ADMIN_TOKEN"],
+    "forbidden_values": {
+      "GRAFANA_ADMIN_PASSWORD": ["admin", "password", "changeme", "123456"],
+      "GRAFANA_ALLOW_SIGN_UP": [true],
+      "GRAFANA_ANONYMOUS_ENABLED": [true]
+    }
+  }
+}

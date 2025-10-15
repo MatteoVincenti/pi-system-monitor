@@ -1,0 +1,77 @@
+version: '3.8'
+
+# Optional services that can be deployed alongside the core monitoring stack
+services:
+  portainer:
+    image: portainer/portainer-ce:2.19.4
+    container_name: ${COMPOSE_PROJECT_NAME:-pimonitor}_portainer
+    restart: unless-stopped
+    hostname: portainer
+    user: "root"  # Portainer requires root access to Docker socket
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:${LOKI_PORT:-3100}/loki/api/v1/push"
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - portainer-data:/data
+    ports:
+      - "${PORTAINER_HTTP_PORT:-8000}:8000"
+      - "${PORTAINER_HTTPS_PORT:-9443}:9443"
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.25'
+        reservations:
+          memory: 128m
+          cpus: '0.1'
+
+  watchtower:
+    image: containrrr/watchtower:1.6.0
+    container_name: ${COMPOSE_PROJECT_NAME:-pimonitor}_watchtower
+    restart: unless-stopped
+    hostname: watchtower
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:${LOKI_PORT:-3100}/loki/api/v1/push"
+    env_file:
+      - .env
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_POLL_INTERVAL:-3600}
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=false
+      - WATCHTOWER_NOTIFICATIONS=${WATCHTOWER_NOTIFICATIONS:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - monitoring-net
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.1'
+        reservations:
+          memory: 64m
+          cpus: '0.05'
+
+volumes:
+  portainer-data:
+    driver: local
+
+networks:
+  monitoring-net:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-pimonitor}_monitoring

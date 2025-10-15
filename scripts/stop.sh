@@ -27,6 +27,5 @@ docker compose -f $PROJECT_ROOT/docker-compose.yaml down
 
 stop_service_if_running "watchtower" "$PROJECT_ROOT/docker-compose.watchtower.yaml"
 stop_service_if_running "portainer" "$PROJECT_ROOT/docker-compose.portainer.yaml"
-stop_service_if_running "homarr" "$PROJECT_ROOT/docker-compose.homarr.yaml"
 
 echo "Shutdown complete."

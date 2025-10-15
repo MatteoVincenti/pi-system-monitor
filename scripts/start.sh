@@ -26,7 +26,6 @@ prompt_service() {
 
 # Prompt user to select additional services to start
 echo "Select additional services to start:"
-prompt_service "homarr" "$PROJECT_ROOT/docker-compose.homarr.yaml"
 prompt_service "portainer" "$PROJECT_ROOT/docker-compose.portainer.yaml"
 prompt_service "watchtower" "$PROJECT_ROOT/docker-compose.watchtower.yaml"
 

@@ -1,0 +1,82 @@
+version: '3.8'
+
+# Development overrides for local development and testing
+services:
+  influxdb:
+    environment:
+      - INFLUXDB_LOG_LEVEL=debug
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb2
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+
+  prometheus:
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'  # Shorter retention for dev
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--log.level=debug'
+    volumes:
+      - ./data/prometheus:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'
+
+  loki:
+    environment:
+      - LOKI_LOG_LEVEL=debug
+    volumes:
+      - ./configs/loki:/etc/loki:ro
+      - ./data/loki:/loki
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'
+
+  alloy:
+    environment:
+      - ALLOY_LOG_LEVEL=debug
+    volumes:
+      - ./configs/alloy:/etc/alloy:ro
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/alloy:/var/lib/alloy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+
+  telegraf:
+    environment:
+      - TELEGRAF_DEBUG=true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+
+  grafana:
+    environment:
+      - GF_LOG_LEVEL=debug
+      - GF_SECURITY_ADMIN_PASSWORD=admin  # Default dev password
+      - GF_USERS_ALLOW_SIGN_UP=true      # Allow signup in dev
+      - GF_AUTH_ANONYMOUS_ENABLED=true   # Enable anonymous access in dev
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./configs/grafana:/etc/grafana:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'

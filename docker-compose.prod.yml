@@ -1,0 +1,129 @@
+version: '3.8'
+
+# Production overrides for optimized performance and security
+services:
+  influxdb:
+    environment:
+      - INFLUXDB_LOG_LEVEL=warn
+    command:
+      - influxd
+      - --bolt-path=/var/lib/influxdb2/influxd.bolt
+      - --engine-path=/var/lib/influxdb2/engine
+      - --store=bolt
+    deploy:
+      resources:
+        limits:
+          memory: ${INFLUXDB_MEMORY_LIMIT:-1g}
+          cpus: '0.5'
+        reservations:
+          memory: 512m
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  prometheus:
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=90d'  # Longer retention for prod
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--log.level=warn'
+      - '--web.external-url=http://localhost:${PROMETHEUS_PORT:-9090}'
+    deploy:
+      resources:
+        limits:
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-512m}
+          cpus: '0.5'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  loki:
+    environment:
+      - LOKI_LOG_LEVEL=warn
+    deploy:
+      resources:
+        limits:
+          memory: ${LOKI_MEMORY_LIMIT:-512m}
+          cpus: '0.5'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  alloy:
+    environment:
+      - ALLOY_LOG_LEVEL=warn
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.25'
+        reservations:
+          memory: 128m
+          cpus: '0.1'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  telegraf:
+    environment:
+      - TELEGRAF_QUIET=true
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.25'
+        reservations:
+          memory: 128m
+          cpus: '0.1'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  grafana:
+    environment:
+      - GF_LOG_LEVEL=warn
+      - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_admin_password
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+      - GF_SECURITY_CONTENT_TYPE_PROTECTION=true
+      - GF_SECURITY_X_CONTENT_TYPE_OPTIONS=nosniff
+      - GF_SECURITY_X_XSS_PROTECTION=true
+    secrets:
+      - grafana_admin_password
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEMORY_LIMIT:-512m}
+          cpus: '0.5'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+secrets:
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
