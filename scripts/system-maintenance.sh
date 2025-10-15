@@ -3,9 +3,9 @@
 # Comprehensive system updates, cleanup, and maintenance for Raspberry Pi
 
 # Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$TEMP_SCRIPT_DIR/lib/common.sh"
 
 # =============================================================================
 # System Maintenance Configuration

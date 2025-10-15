@@ -3,11 +3,11 @@
 # Comprehensive Docker resource cleanup with safety checks and reporting
 
 # Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$TEMP_SCRIPT_DIR/lib/common.sh"
 # shellcheck source=./lib/docker.sh
-source "$SCRIPT_DIR/lib/docker.sh"
+source "$TEMP_SCRIPT_DIR/lib/docker.sh"
 
 # =============================================================================
 # Docker Cleanup Configuration

@@ -3,13 +3,13 @@
 # Comprehensive setup and validation for PiMonitor observability stack
 
 # Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$TEMP_SCRIPT_DIR/lib/common.sh"
 # shellcheck source=./lib/docker.sh
-source "$SCRIPT_DIR/lib/docker.sh"
+source "$TEMP_SCRIPT_DIR/lib/docker.sh"
 # shellcheck source=./lib/validation.sh
-source "$SCRIPT_DIR/lib/validation.sh"
+source "$TEMP_SCRIPT_DIR/lib/validation.sh"
 
 # =============================================================================
 # Setup Configuration
@@ -44,6 +44,21 @@ check_prerequisites() {
     log_info "Checking system prerequisites..."
     
     local errors=0
+    
+    # Run Raspberry Pi compatibility check first
+    log_info "Running Raspberry Pi compatibility check..."
+    if ! "$SCRIPT_DIR/pi-compatibility-check.sh" >/dev/null 2>&1; then
+        log_warn "Raspberry Pi compatibility check found some issues"
+        if confirm "Continue with setup anyway?" "y"; then
+            log_info "Proceeding with setup despite compatibility warnings"
+        else
+            log_error "Setup cancelled due to compatibility issues"
+            log_info "Run './scripts/pi-compatibility-check.sh' for detailed information"
+            exit 1
+        fi
+    else
+        log_info "✅ Raspberry Pi compatibility check passed"
+    fi
     
     # Check operating system
     local os_info

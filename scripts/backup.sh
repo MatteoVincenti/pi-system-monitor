@@ -3,11 +3,11 @@
 # Comprehensive backup and restore operations for PiMonitor data and configurations
 
 # Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$BACKUP_SCRIPT_DIR/lib/common.sh"
 # shellcheck source=./lib/docker.sh
-source "$SCRIPT_DIR/lib/docker.sh"
+source "$BACKUP_SCRIPT_DIR/lib/docker.sh"
 
 # =============================================================================
 # Backup Configuration

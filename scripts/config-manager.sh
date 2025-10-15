@@ -3,11 +3,11 @@
 # Advanced configuration templating, validation, and management utilities
 
 # Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$TEMP_SCRIPT_DIR/lib/common.sh"
 # shellcheck source=./lib/validation.sh
-source "$SCRIPT_DIR/lib/validation.sh"
+source "$TEMP_SCRIPT_DIR/lib/validation.sh"
 
 # =============================================================================
 # Configuration Management Constants

@@ -1,19 +1,21 @@
 #!/bin/bash
 # Raspberry Pi Compatibility Check for PiMonitor
-# Validates system compatibility and optimizes settings for Raspberry Pi
+# Validates system requirements and ARM64 compatibility
 
-# Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Source common utilities
+TEMP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
-# shellcheck source=./lib/validation.sh
-source "$SCRIPT_DIR/lib/validation.sh"
+source "$TEMP_SCRIPT_DIR/lib/common.sh"
 
 # =============================================================================
-# Raspberry Pi Compatibility Configuration
+# Raspberry Pi Compatibility Constants
 # =============================================================================
 
 readonly PI_CHECK_VERSION="2.0.0"
+readonly MIN_MEMORY_GB=2
+readonly MIN_DISK_GB=10
+readonly MIN_DOCKER_VERSION="20.10.0"
+readonly REQUIRED_ARCH="aarch64"
 
 # =============================================================================
 # Compatibility Check Functions
@@ -28,644 +30,593 @@ show_banner() {
  / ____/ / / /___/ /_/ / / / / / / /_/ / /_/ / /_   
 /_/   /_/  \____/\____/_/ /_/ /_/ .___/\__,_/\__/   
                                /_/                  
-PiMonitor Raspberry Pi Compatibility Check v2.0.0
+Raspberry Pi Compatibility Check v2.0.0
 EOF
     echo ""
 }
 
-# Show usage information
-show_usage() {
-    cat << EOF
-Usage: $0 [options]
-
-Options:
-  -o, --optimize       Apply Raspberry Pi optimizations automatically
-  -r, --report         Generate detailed compatibility report
-  -f, --fix            Attempt to fix compatibility issues
-  -v, --verbose        Verbose output with detailed information
-  -h, --help           Show this help message
-
-Compatibility Checks:
-  Hardware:            CPU architecture, memory, storage
-  Operating System:    Raspberry Pi OS compatibility
-  Docker:              ARM64 image support and configuration
-  Performance:         Resource limits and optimization settings
-  Network:             Network configuration and performance
-
-Examples:
-  $0                   # Basic compatibility check
-  $0 -o               # Check and apply optimizations
-  $0 -r               # Generate detailed report
-  $0 -f -o            # Fix issues and optimize
-EOF
-}
-
-# Parse command line arguments
-parse_args() {
-    OPTIMIZE="false"
-    GENERATE_REPORT="false"
-    FIX_ISSUES="false"
-    VERBOSE="false"
+# Check Raspberry Pi model and specifications
+check_pi_model() {
+    log_info "Checking Raspberry Pi model and specifications..."
     
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -o|--optimize)
-                OPTIMIZE="true"
-                shift
-                ;;
-            -r|--report)
-                GENERATE_REPORT="true"
-                shift
-                ;;
-            -f|--fix)
-                FIX_ISSUES="true"
-                shift
-                ;;
-            -v|--verbose)
-                VERBOSE="true"
-                export LOG_LEVEL=$LOG_LEVEL_DEBUG
-                shift
-                ;;
-            -h|--help)
-                show_usage
-                exit 0
-                ;;
-            *)
-                log_error "Unknown argument: $1"
-                show_usage
-                exit 1
-                ;;
-        esac
-    done
-}
-
-# Detect Raspberry Pi model and specifications
-detect_raspberry_pi() {
-    log_info "Detecting Raspberry Pi hardware..."
+    local pi_model=""
+    local pi_memory=""
+    local pi_revision=""
     
     # Check if running on Raspberry Pi
-    if [[ -f /proc/device-tree/model ]]; then
-        PI_MODEL=$(cat /proc/device-tree/model 2>/dev/null | tr -d '\0')
-        IS_RASPBERRY_PI="true"
-        log_info "Detected: $PI_MODEL"
-    elif [[ -f /sys/firmware/devicetree/base/model ]]; then
-        PI_MODEL=$(cat /sys/firmware/devicetree/base/model 2>/dev/null | tr -d '\0')
-        IS_RASPBERRY_PI="true"
-        log_info "Detected: $PI_MODEL"
-    else
-        IS_RASPBERRY_PI="false"
-        PI_MODEL="Not a Raspberry Pi"
-        log_warn "This does not appear to be a Raspberry Pi"
+    if [[ -f /proc/cpuinfo ]]; then
+        pi_model=$(grep "Model" /proc/cpuinfo | cut -d: -f2 | xargs)
+        pi_revision=$(grep "Revision" /proc/cpuinfo | cut -d: -f2 | xargs)
     fi
     
-    # Get CPU information
-    CPU_ARCHITECTURE=$(uname -m)
-    CPU_CORES=$(nproc)
+    if [[ -z "$pi_model" ]]; then
+        log_warn "Not running on a Raspberry Pi or model detection failed"
+        log_info "System: $(uname -a)"
+        return 0
+    fi
     
-    # Get memory information
-    TOTAL_MEMORY_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    TOTAL_MEMORY_GB=$((TOTAL_MEMORY_KB / 1024 / 1024))
+    log_info "Raspberry Pi Model: $pi_model"
+    log_info "Revision: $pi_revision"
     
-    # Get storage information
-    ROOT_STORAGE=$(df -BG / | awk 'NR==2 {print $2}' | tr -d 'G')
+    # Check memory from /proc/meminfo
+    local total_memory_kb
+    total_memory_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local total_memory_gb=$((total_memory_kb / 1024 / 1024))
     
-    log_debug "CPU Architecture: $CPU_ARCHITECTURE"
-    log_debug "CPU Cores: $CPU_CORES"
-    log_debug "Total Memory: ${TOTAL_MEMORY_GB}GB"
-    log_debug "Root Storage: ${ROOT_STORAGE}GB"
-}
-
-# Check ARM64 compatibility
-check_arm64_compatibility() {
-    log_info "Checking ARM64 compatibility..."
+    log_info "Total Memory: ${total_memory_gb}GB"
     
-    local compatibility_score=0
-    local issues=()
+    # Validate minimum requirements
+    if [[ $total_memory_gb -lt $MIN_MEMORY_GB ]]; then
+        log_error "Insufficient memory: ${total_memory_gb}GB (minimum: ${MIN_MEMORY_GB}GB)"
+        log_warn "PiMonitor may experience performance issues or out-of-memory errors"
+        return 1
+    else
+        log_info "Memory requirement satisfied: ${total_memory_gb}GB >= ${MIN_MEMORY_GB}GB"
+    fi
     
-    # Check CPU architecture
-    case "$CPU_ARCHITECTURE" in
-        "aarch64"|"arm64")
-            log_info "✓ ARM64 architecture detected"
-            ((compatibility_score += 25))
+    # Check for specific Pi models and provide recommendations
+    case "$pi_model" in
+        *"Raspberry Pi 4"*)
+            log_info "✅ Raspberry Pi 4 detected - Excellent compatibility"
+            if [[ $total_memory_gb -ge 4 ]]; then
+                log_info "✅ 4GB+ RAM - Recommended for full PiMonitor stack"
+            elif [[ $total_memory_gb -ge 2 ]]; then
+                log_info "⚠️  2GB RAM - Adequate but consider memory optimization"
+            fi
             ;;
-        "armv7l"|"armhf")
-            log_warn "⚠ ARM32 architecture detected - limited performance"
-            issues+=("ARM32 architecture may have performance limitations")
-            ((compatibility_score += 15))
+        *"Raspberry Pi 3"*)
+            log_warn "⚠️  Raspberry Pi 3 detected - Limited compatibility"
+            log_warn "Consider upgrading to Pi 4 for better performance"
             ;;
-        "x86_64"|"amd64")
-            log_info "✓ x86_64 architecture detected - full compatibility"
-            ((compatibility_score += 25))
+        *"Raspberry Pi 5"*)
+            log_info "✅ Raspberry Pi 5 detected - Excellent compatibility"
+            log_info "✅ Latest hardware - Optimal performance expected"
             ;;
         *)
-            log_error "✗ Unsupported architecture: $CPU_ARCHITECTURE"
-            issues+=("Unsupported CPU architecture: $CPU_ARCHITECTURE")
+            log_warn "Unknown or older Raspberry Pi model: $pi_model"
+            log_warn "Compatibility not guaranteed"
             ;;
     esac
     
-    # Check if 64-bit kernel is running
-    if [[ "$(getconf LONG_BIT)" == "64" ]]; then
-        log_info "✓ 64-bit kernel detected"
-        ((compatibility_score += 25))
-    else
-        log_warn "⚠ 32-bit kernel detected - consider upgrading to 64-bit"
-        issues+=("32-bit kernel may limit performance and memory usage")
-        ((compatibility_score += 10))
-    fi
-    
-    ARM64_COMPATIBILITY_SCORE=$compatibility_score
-    ARM64_ISSUES=("${issues[@]}")
+    return 0
 }
 
-# Check memory requirements
-check_memory_requirements() {
-    log_info "Checking memory requirements..."
+# Check system architecture
+check_architecture() {
+    log_info "Checking system architecture..."
     
-    local memory_score=0
-    local issues=()
+    local arch
+    arch=$(uname -m)
     
-    # Minimum requirements check
-    if [[ $TOTAL_MEMORY_GB -ge 4 ]]; then
-        log_info "✓ ${TOTAL_MEMORY_GB}GB RAM - Excellent for PiMonitor"
-        memory_score=25
-    elif [[ $TOTAL_MEMORY_GB -ge 2 ]]; then
-        log_info "✓ ${TOTAL_MEMORY_GB}GB RAM - Good for PiMonitor"
-        memory_score=20
-    elif [[ $TOTAL_MEMORY_GB -ge 1 ]]; then
-        log_warn "⚠ ${TOTAL_MEMORY_GB}GB RAM - Minimal for PiMonitor (reduce resource limits)"
-        issues+=("Low memory: Consider reducing service memory limits")
-        memory_score=10
-    else
-        log_error "✗ ${TOTAL_MEMORY_GB}GB RAM - Insufficient for PiMonitor"
-        issues+=("Insufficient memory: PiMonitor requires at least 1GB RAM")
-        memory_score=0
-    fi
+    log_info "System Architecture: $arch"
     
-    # Check available memory
-    local available_memory_kb
-    available_memory_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    local available_memory_gb=$((available_memory_kb / 1024 / 1024))
-    
-    if [[ $available_memory_gb -lt 1 ]]; then
-        log_warn "⚠ Only ${available_memory_gb}GB memory currently available"
-        issues+=("Low available memory: Consider closing other applications")
-    fi
-    
-    # Check swap configuration
-    local swap_total_kb
-    swap_total_kb=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
-    local swap_total_gb=$((swap_total_kb / 1024 / 1024))
-    
-    if [[ $swap_total_gb -eq 0 ]]; then
-        log_warn "⚠ No swap space configured - consider adding swap for stability"
-        issues+=("No swap space: Consider adding swap file for memory stability")
-    else
-        log_info "✓ ${swap_total_gb}GB swap space configured"
-    fi
-    
-    MEMORY_SCORE=$memory_score
-    MEMORY_ISSUES=("${issues[@]}")
+    case "$arch" in
+        "aarch64"|"arm64")
+            log_info "✅ ARM64 architecture detected - Full compatibility"
+            return 0
+            ;;
+        "armv7l"|"armhf")
+            log_warn "⚠️  ARM32 architecture detected - Limited compatibility"
+            log_warn "Some Docker images may not be available for ARM32"
+            log_warn "Consider using Raspberry Pi OS 64-bit for better compatibility"
+            return 1
+            ;;
+        "x86_64"|"amd64")
+            log_info "✅ x86_64 architecture detected - Full compatibility"
+            log_info "Note: Not a Raspberry Pi, but PiMonitor will work"
+            return 0
+            ;;
+        *)
+            log_error "❌ Unsupported architecture: $arch"
+            log_error "PiMonitor requires ARM64 or x86_64 architecture"
+            return 1
+            ;;
+    esac
 }
 
-# Check storage requirements
-check_storage_requirements() {
-    log_info "Checking storage requirements..."
+# Check operating system compatibility
+check_operating_system() {
+    log_info "Checking operating system compatibility..."
     
-    local storage_score=0
-    local issues=()
+    local os_info
+    os_info=$(get_os_info)
     
-    # Check root filesystem space
-    if [[ $ROOT_STORAGE -ge 32 ]]; then
-        log_info "✓ ${ROOT_STORAGE}GB storage - Excellent for PiMonitor"
-        storage_score=25
-    elif [[ $ROOT_STORAGE -ge 16 ]]; then
-        log_info "✓ ${ROOT_STORAGE}GB storage - Good for PiMonitor"
-        storage_score=20
-    elif [[ $ROOT_STORAGE -ge 8 ]]; then
-        log_warn "⚠ ${ROOT_STORAGE}GB storage - Minimal for PiMonitor (monitor usage)"
-        issues+=("Limited storage: Monitor disk usage and configure log rotation")
-        storage_score=10
+    log_info "Operating System: $os_info"
+    
+    # Check for supported OS
+    if [[ -f /etc/os-release ]]; then
+        # shellcheck source=/dev/null
+        source /etc/os-release
+        
+        case "$ID" in
+            "raspbian"|"debian")
+                log_info "✅ Debian-based OS detected - Excellent compatibility"
+                if [[ "$VERSION_ID" ]]; then
+                    log_info "Version: $VERSION_ID"
+                fi
+                ;;
+            "ubuntu")
+                log_info "✅ Ubuntu detected - Excellent compatibility"
+                log_info "Version: $VERSION_ID"
+                ;;
+            "fedora"|"centos"|"rhel")
+                log_info "✅ Red Hat-based OS detected - Good compatibility"
+                log_info "Version: $VERSION_ID"
+                ;;
+            *)
+                log_warn "⚠️  Unknown OS: $ID"
+                log_warn "Compatibility not guaranteed"
+                ;;
+        esac
+        
+        # Check for 64-bit OS on ARM
+        if [[ "$arch" == "aarch64" ]] && [[ "$os_info" == *"32-bit"* ]]; then
+            log_warn "⚠️  32-bit OS detected on 64-bit hardware"
+            log_warn "Consider upgrading to 64-bit OS for better performance"
+        fi
     else
-        log_error "✗ ${ROOT_STORAGE}GB storage - Insufficient for PiMonitor"
-        issues+=("Insufficient storage: PiMonitor requires at least 8GB free space")
-        storage_score=0
+        log_warn "Cannot determine OS version"
     fi
     
-    # Check storage type (SSD vs SD card)
-    local root_device
-    root_device=$(df / | awk 'NR==2 {print $1}' | sed 's/[0-9]*$//')
-    
-    if [[ "$root_device" =~ mmcblk ]]; then
-        log_warn "⚠ Running on SD card - consider using SSD for better performance"
-        issues+=("SD card storage: Consider using SSD for better I/O performance")
-    elif [[ "$root_device" =~ nvme ]] || [[ "$root_device" =~ sda ]]; then
-        log_info "✓ Running on SSD/NVMe - optimal for PiMonitor"
-        ((storage_score += 5))
-    fi
-    
-    # Check available space
-    local available_space
-    available_space=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G')
-    
-    if [[ $available_space -lt 5 ]]; then
-        log_warn "⚠ Only ${available_space}GB free space available"
-        issues+=("Low free space: Clean up disk space before deployment")
-    fi
-    
-    STORAGE_SCORE=$storage_score
-    STORAGE_ISSUES=("${issues[@]}")
+    return 0
 }
 
 # Check Docker compatibility
 check_docker_compatibility() {
     log_info "Checking Docker compatibility..."
     
-    local docker_score=0
-    local issues=()
-    
-    # Check if Docker is installed
-    if command_exists docker; then
-        log_info "✓ Docker is installed"
-        ((docker_score += 10))
-        
-        # Check Docker version
-        local docker_version
-        docker_version=$(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        log_debug "Docker version: $docker_version"
-        
-        # Check Docker Compose
-        if docker compose version >/dev/null 2>&1; then
-            log_info "✓ Docker Compose v2 is available"
-            ((docker_score += 10))
-        else
-            log_error "✗ Docker Compose v2 is not available"
-            issues+=("Docker Compose v2 required: Install Docker Compose v2")
-        fi
-        
-        # Check Docker daemon status
-        if docker info >/dev/null 2>&1; then
-            log_info "✓ Docker daemon is running"
-            ((docker_score += 5))
-        else
-            log_error "✗ Docker daemon is not running"
-            issues+=("Docker daemon not running: Start Docker service")
-        fi
-        
-        # Check Loki plugin
-        if docker plugin ls 2>/dev/null | grep -q loki; then
-            log_info "✓ Loki Docker plugin is installed"
-            ((docker_score += 10))
-        else
-            log_warn "⚠ Loki Docker plugin not installed"
-            issues+=("Loki plugin missing: Install with 'docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions'")
-        fi
-        
-    else
-        log_error "✗ Docker is not installed"
-        issues+=("Docker not installed: Install Docker Engine")
+    if ! command_exists docker; then
+        log_error "❌ Docker not installed"
+        log_info "Install Docker with: curl -fsSL https://get.docker.com | sh"
+        return 1
     fi
     
-    DOCKER_SCORE=$docker_score
-    DOCKER_ISSUES=("${issues[@]}")
+    local docker_version
+    docker_version=$(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    
+    log_info "Docker Version: $docker_version"
+    
+    # Check minimum Docker version
+    if ! version_compare "$docker_version" "$MIN_DOCKER_VERSION"; then
+        log_error "❌ Docker version too old: $docker_version (minimum: $MIN_DOCKER_VERSION)"
+        log_info "Update Docker with: curl -fsSL https://get.docker.com | sh"
+        return 1
+    else
+        log_info "✅ Docker version requirement satisfied"
+    fi
+    
+    # Check Docker Compose v2
+    if ! docker compose version >/dev/null 2>&1; then
+        log_error "❌ Docker Compose v2 not available"
+        log_info "Install Docker Compose v2 or update Docker"
+        return 1
+    else
+        local compose_version
+        compose_version=$(docker compose version --short)
+        log_info "✅ Docker Compose v2 available: $compose_version"
+    fi
+    
+    # Check Docker daemon status
+    if ! docker info >/dev/null 2>&1; then
+        log_error "❌ Docker daemon not running or not accessible"
+        log_info "Start Docker: sudo systemctl start docker"
+        log_info "Enable Docker: sudo systemctl enable docker"
+        return 1
+    else
+        log_info "✅ Docker daemon is running"
+    fi
+    
+    # Check user permissions
+    if ! docker ps >/dev/null 2>&1; then
+        log_warn "⚠️  User not in docker group"
+        log_info "Add user to docker group: sudo usermod -aG docker $USER"
+        log_info "Then log out and back in"
+        return 1
+    else
+        log_info "✅ Docker permissions are correct"
+    fi
+    
+    return 0
 }
 
-# Check network configuration
-check_network_configuration() {
-    log_info "Checking network configuration..."
+# Check storage requirements
+check_storage_requirements() {
+    log_info "Checking storage requirements..."
     
-    local network_score=0
-    local issues=()
+    local available_space_gb
+    available_space_gb=$(df "$PROJECT_ROOT" | awk 'NR==2{print int($4/1024/1024)}')
+    
+    log_info "Available Disk Space: ${available_space_gb}GB"
+    
+    if [[ $available_space_gb -lt $MIN_DISK_GB ]]; then
+        log_error "❌ Insufficient disk space: ${available_space_gb}GB (minimum: ${MIN_DISK_GB}GB)"
+        log_info "Free up disk space or use external storage"
+        return 1
+    else
+        log_info "✅ Disk space requirement satisfied: ${available_space_gb}GB >= ${MIN_DISK_GB}GB"
+    fi
+    
+    # Check for SD card vs SSD
+    local root_device
+    root_device=$(df / | awk 'NR==2{print $1}' | sed 's/[0-9]*$//')
+    
+    if [[ "$root_device" == *"mmcblk"* ]]; then
+        log_warn "⚠️  Running on SD card storage"
+        log_warn "Consider using SSD storage for better I/O performance"
+        log_info "Recommendation: Use USB 3.0 SSD for data directory"
+    else
+        log_info "✅ Using non-SD card storage (better performance)"
+    fi
+    
+    return 0
+}
+
+# Check network requirements
+check_network_requirements() {
+    log_info "Checking network requirements..."
     
     # Check internet connectivity
-    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
-        log_info "✓ Internet connectivity available"
-        ((network_score += 10))
+    if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        log_error "❌ No internet connectivity"
+        log_info "Internet required for Docker image downloads"
+        return 1
     else
-        log_error "✗ No internet connectivity"
-        issues+=("No internet access: Check network configuration")
+        log_info "✅ Internet connectivity available"
     fi
     
     # Check DNS resolution
-    if nslookup grafana.com >/dev/null 2>&1; then
-        log_info "✓ DNS resolution working"
-        ((network_score += 5))
+    if ! nslookup docker.io >/dev/null 2>&1; then
+        log_warn "⚠️  DNS resolution issues detected"
+        log_info "May affect Docker image downloads"
     else
-        log_warn "⚠ DNS resolution issues"
-        issues+=("DNS issues: Check DNS configuration")
+        log_info "✅ DNS resolution working"
     fi
     
-    # Check port availability
-    local ports_to_check=(3000 8086 9090 3100 12345)
-    local available_ports=0
+    return 0
+}
+
+# Check ARM64 Docker image availability
+check_arm64_images() {
+    log_info "Checking ARM64 Docker image availability..."
     
-    for port in "${ports_to_check[@]}"; do
-        if is_port_available "$port"; then
-            ((available_ports++))
+    local images=(
+        "grafana/grafana-oss:10.2.0"
+        "influxdb:2.7-alpine"
+        "prom/prometheus:v2.48.0"
+        "grafana/loki:2.9.0"
+        "grafana/alloy:v0.38.0"
+        "telegraf:1.28-alpine"
+    )
+    
+    local unavailable_images=()
+    
+    for image in "${images[@]}"; do
+        log_debug "Checking image: $image"
+        
+        # Try to inspect the image manifest for ARM64 support
+        if docker manifest inspect "$image" >/dev/null 2>&1; then
+            if docker manifest inspect "$image" | grep -q "arm64\|aarch64"; then
+                log_debug "✅ $image supports ARM64"
+            else
+                log_warn "⚠️  $image may not support ARM64"
+                unavailable_images+=("$image")
+            fi
         else
-            issues+=("Port $port is in use: Change port or stop conflicting service")
+            log_warn "⚠️  Cannot check manifest for $image"
         fi
     done
     
-    if [[ $available_ports -eq ${#ports_to_check[@]} ]]; then
-        log_info "✓ All required ports are available"
-        ((network_score += 10))
+    if [[ ${#unavailable_images[@]} -eq 0 ]]; then
+        log_info "✅ All required images support ARM64"
+        return 0
     else
-        log_warn "⚠ Some ports are in use: $((${#ports_to_check[@]} - available_ports)) conflicts"
+        log_warn "⚠️  Some images may not support ARM64:"
+        for image in "${unavailable_images[@]}"; do
+            log_warn "  - $image"
+        done
+        return 1
     fi
-    
-    NETWORK_SCORE=$network_score
-    NETWORK_ISSUES=("${issues[@]}")
 }
 
-# Apply Raspberry Pi optimizations
-apply_pi_optimizations() {
-    log_info "Applying Raspberry Pi optimizations..."
+# Check system performance
+check_system_performance() {
+    log_info "Checking system performance characteristics..."
     
-    local optimizations_applied=0
+    # Check CPU information
+    local cpu_cores
+    cpu_cores=$(nproc)
+    log_info "CPU Cores: $cpu_cores"
     
-    # Create optimized environment configuration
-    if [[ "$IS_RASPBERRY_PI" == "true" ]]; then
-        log_info "Creating Raspberry Pi optimized configuration..."
-        
-        # Determine optimal resource limits based on memory
-        local grafana_memory="256m"
-        local influxdb_memory="512m"
-        local prometheus_memory="256m"
-        local loki_memory="256m"
-        
-        if [[ $TOTAL_MEMORY_GB -ge 4 ]]; then
-            grafana_memory="512m"
-            influxdb_memory="1g"
-            prometheus_memory="512m"
-            loki_memory="512m"
-        elif [[ $TOTAL_MEMORY_GB -ge 2 ]]; then
-            grafana_memory="384m"
-            influxdb_memory="768m"
-            prometheus_memory="384m"
-            loki_memory="384m"
-        fi
-        
-        # Create Pi-optimized environment file
-        cat > "$PROJECT_ROOT/.env.pi-optimized" << EOF
-# Raspberry Pi Optimized Configuration for PiMonitor
-# Generated by pi-compatibility-check.sh on $(date)
-
-# Project Configuration
-COMPOSE_PROJECT_NAME=pimonitor
-ENVIRONMENT=production
-
-# Raspberry Pi Optimized Resource Limits
-GRAFANA_MEMORY_LIMIT=$grafana_memory
-INFLUXDB_MEMORY_LIMIT=$influxdb_memory
-PROMETHEUS_MEMORY_LIMIT=$prometheus_memory
-LOKI_MEMORY_LIMIT=$loki_memory
-ALLOY_MEMORY_LIMIT=128m
-TELEGRAF_MEMORY_LIMIT=128m
-
-# CPU Limits (conservative for Pi)
-GRAFANA_CPU_LIMIT=0.3
-INFLUXDB_CPU_LIMIT=0.4
-PROMETHEUS_CPU_LIMIT=0.3
-LOKI_CPU_LIMIT=0.3
-ALLOY_CPU_LIMIT=0.2
-TELEGRAF_CPU_LIMIT=0.2
-
-# Optimized Data Retention (shorter for Pi)
-PROMETHEUS_RETENTION_TIME=15d
-LOKI_RETENTION_PERIOD=15d
-INFLUXDB_INIT_RETENTION=15d
-
-# Performance Optimizations
-PROMETHEUS_SCRAPE_INTERVAL=30s
-TELEGRAF_INTERVAL=30s
-LOKI_INGESTION_RATE_MB=8
-LOKI_INGESTION_BURST_SIZE_MB=16
-
-# Logging (reduced verbosity)
-LOG_LEVEL=warn
-GRAFANA_LOG_LEVEL=warn
-INFLUXDB_LOG_LEVEL=warn
-PROMETHEUS_LOG_LEVEL=warn
-LOKI_LOG_LEVEL=warn
-
-# Backup and Maintenance
-BACKUP_ENABLED=true
-BACKUP_RETENTION_DAYS=14
-AUTO_CLEANUP_ENABLED=true
-EOF
-        
-        log_info "Created Pi-optimized configuration: .env.pi-optimized"
-        ((optimizations_applied++))
+    if [[ $cpu_cores -lt 2 ]]; then
+        log_warn "⚠️  Single core CPU detected - may impact performance"
+    else
+        log_info "✅ Multi-core CPU available"
     fi
     
-    # Configure swap if not present and memory is low
-    if [[ $TOTAL_MEMORY_GB -lt 4 ]] && [[ $(grep SwapTotal /proc/meminfo | awk '{print $2}') -eq 0 ]]; then
-        log_info "Configuring swap file for low memory system..."
-        
-        cat > "$PROJECT_ROOT/setup-swap.sh" << 'EOF'
-#!/bin/bash
-# Setup swap file for Raspberry Pi
-set -euo pipefail
-
-SWAP_SIZE="2G"
-SWAP_FILE="/swapfile"
-
-echo "Creating ${SWAP_SIZE} swap file..."
-sudo fallocate -l $SWAP_SIZE $SWAP_FILE
-sudo chmod 600 $SWAP_FILE
-sudo mkswap $SWAP_FILE
-sudo swapon $SWAP_FILE
-
-# Make swap permanent
-if ! grep -q "$SWAP_FILE" /etc/fstab; then
-    echo "$SWAP_FILE none swap sw 0 0" | sudo tee -a /etc/fstab
-fi
-
-echo "Swap file created and activated"
-swapon --show
-EOF
-        
-        chmod +x "$PROJECT_ROOT/setup-swap.sh"
-        log_info "Created swap setup script: setup-swap.sh"
-        ((optimizations_applied++))
+    # Check CPU frequency (if available)
+    if [[ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq ]]; then
+        local cpu_freq
+        cpu_freq=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq)
+        cpu_freq=$((cpu_freq / 1000))  # Convert to MHz
+        log_info "CPU Frequency: ${cpu_freq}MHz"
     fi
     
-    # Create Docker daemon optimization
-    if [[ "$IS_RASPBERRY_PI" == "true" ]]; then
-        cat > "$PROJECT_ROOT/docker-daemon-pi.json" << EOF
-{
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  },
-  "storage-driver": "overlay2",
-  "storage-opts": [
-    "overlay2.override_kernel_check=true"
-  ],
-  "max-concurrent-downloads": 3,
-  "max-concurrent-uploads": 3,
-  "default-shm-size": "64m"
-}
-EOF
-        
-        log_info "Created Docker daemon optimization config: docker-daemon-pi.json"
-        log_info "To apply: sudo cp docker-daemon-pi.json /etc/docker/daemon.json && sudo systemctl restart docker"
-        ((optimizations_applied++))
+    # Check system load
+    local load_avg
+    load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | tr -d ',')
+    log_info "Current Load Average: $load_avg"
+    
+    # Check swap
+    local swap_total
+    swap_total=$(free -h | awk '/^Swap:/ {print $2}')
+    if [[ "$swap_total" == "0B" ]]; then
+        log_warn "⚠️  No swap configured - consider enabling swap for memory management"
+        log_info "Enable swap: sudo dphys-swapfile setup && sudo dphys-swapfile swapon"
+    else
+        log_info "✅ Swap available: $swap_total"
     fi
     
-    log_info "Applied $optimizations_applied Raspberry Pi optimizations"
+    return 0
 }
 
-# Fix compatibility issues
-fix_compatibility_issues() {
-    log_info "Attempting to fix compatibility issues..."
+# Version comparison function
+version_compare() {
+    local version1="$1"
+    local version2="$2"
     
-    local fixes_applied=0
-    
-    # Install Docker if missing
-    if ! command_exists docker; then
-        log_info "Installing Docker..."
-        if curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh; then
-            sudo usermod -aG docker "$USER"
-            rm get-docker.sh
-            log_info "Docker installed successfully"
-            ((fixes_applied++))
-        else
-            log_error "Failed to install Docker"
-        fi
+    # Simple version comparison (assumes semantic versioning)
+    if [[ "$version1" == "$version2" ]]; then
+        return 0
     fi
     
-    # Install Loki plugin if missing
-    if command_exists docker && ! docker plugin ls 2>/dev/null | grep -q loki; then
-        log_info "Installing Loki Docker plugin..."
-        
-        local plugin_tag="latest"
-        if [[ "$CPU_ARCHITECTURE" =~ ^(aarch64|arm64)$ ]]; then
-            plugin_tag="3.3.2-arm64"
-        fi
-        
-        if docker plugin install "grafana/loki-docker-driver:$plugin_tag" --alias loki --grant-all-permissions; then
-            log_info "Loki Docker plugin installed successfully"
-            ((fixes_applied++))
-        else
-            log_error "Failed to install Loki Docker plugin"
-        fi
-    fi
+    local IFS=.
+    local i ver1=($version1) ver2=($version2)
     
-    log_info "Applied $fixes_applied compatibility fixes"
+    # Fill empty fields in ver1 with zeros
+    for ((i=${#ver1[@]}; i<${#ver2[@]}; i++)); do
+        ver1[i]=0
+    done
+    
+    for ((i=0; i<${#ver1[@]}; i++)); do
+        if [[ -z ${ver2[i]} ]]; then
+            ver2[i]=0
+        fi
+        if ((10#${ver1[i]} > 10#${ver2[i]})); then
+            return 0
+        fi
+        if ((10#${ver1[i]} < 10#${ver2[i]})); then
+            return 1
+        fi
+    done
+    
+    return 0
 }
 
 # Generate compatibility report
 generate_compatibility_report() {
-    local report_file="$PROJECT_ROOT/pi-compatibility-report-$(date +%Y%m%d_%H%M%S).txt"
+    local report_file="${1:-pi-compatibility-report.txt}"
     
     log_info "Generating compatibility report: $report_file"
     
-    mkdir -p "$(dirname "$report_file")"
-    
-    local total_score=$((ARM64_COMPATIBILITY_SCORE + MEMORY_SCORE + STORAGE_SCORE + DOCKER_SCORE + NETWORK_SCORE))
-    local max_score=110
-    local compatibility_percentage=$((total_score * 100 / max_score))
-    
     {
-        echo "PiMonitor Raspberry Pi Compatibility Report"
-        echo "=========================================="
+        echo "Raspberry Pi Compatibility Report for PiMonitor"
+        echo "=============================================="
         echo "Generated: $(date)"
-        echo "Version: $PI_CHECK_VERSION"
+        echo "Check Version: $PI_CHECK_VERSION"
         echo ""
         
-        echo "Hardware Information:"
-        echo "  Model: $PI_MODEL"
-        echo "  Architecture: $CPU_ARCHITECTURE"
-        echo "  CPU Cores: $CPU_CORES"
-        echo "  Memory: ${TOTAL_MEMORY_GB}GB"
-        echo "  Storage: ${ROOT_STORAGE}GB"
+        echo "System Information:"
+        echo "------------------"
+        echo "Hostname: $(hostname)"
+        echo "OS: $(get_os_info)"
+        echo "Architecture: $(uname -m)"
+        echo "Kernel: $(uname -r)"
         echo ""
         
-        echo "Compatibility Score: $total_score/$max_score ($compatibility_percentage%)"
-        echo ""
-        
-        echo "Component Scores:"
-        echo "  ARM64 Compatibility: $ARM64_COMPATIBILITY_SCORE/50"
-        echo "  Memory Requirements: $MEMORY_SCORE/25"
-        echo "  Storage Requirements: $STORAGE_SCORE/25"
-        echo "  Docker Compatibility: $DOCKER_SCORE/35"
-        echo "  Network Configuration: $NETWORK_SCORE/25"
-        echo ""
-        
-        if [[ ${#ARM64_ISSUES[@]} -gt 0 ]] || [[ ${#MEMORY_ISSUES[@]} -gt 0 ]] || [[ ${#STORAGE_ISSUES[@]} -gt 0 ]] || [[ ${#DOCKER_ISSUES[@]} -gt 0 ]] || [[ ${#NETWORK_ISSUES[@]} -gt 0 ]]; then
-            echo "Issues Found:"
-            for issue in "${ARM64_ISSUES[@]}" "${MEMORY_ISSUES[@]}" "${STORAGE_ISSUES[@]}" "${DOCKER_ISSUES[@]}" "${NETWORK_ISSUES[@]}"; do
-                echo "  - $issue"
-            done
+        if [[ -f /proc/cpuinfo ]]; then
+            echo "Raspberry Pi Information:"
+            echo "------------------------"
+            grep -E "(Model|Revision|Serial)" /proc/cpuinfo
             echo ""
         fi
         
-        echo "Recommendations:"
-        if [[ $compatibility_percentage -ge 80 ]]; then
-            echo "  - System is well-suited for PiMonitor"
-            echo "  - Consider applying Pi optimizations for best performance"
-        elif [[ $compatibility_percentage -ge 60 ]]; then
-            echo "  - System can run PiMonitor with some limitations"
-            echo "  - Apply optimizations and address identified issues"
+        echo "Hardware Resources:"
+        echo "------------------"
+        echo "CPU Cores: $(nproc)"
+        echo "Memory: $(free -h | awk 'NR==2{print $2}')"
+        echo "Disk Space: $(df -h "$PROJECT_ROOT" | awk 'NR==2{print $4}')"
+        echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+        echo ""
+        
+        echo "Docker Information:"
+        echo "------------------"
+        if command_exists docker; then
+            echo "Docker Version: $(docker --version)"
+            if docker compose version >/dev/null 2>&1; then
+                echo "Docker Compose: $(docker compose version --short)"
+            else
+                echo "Docker Compose: Not available"
+            fi
         else
-            echo "  - System may struggle with PiMonitor"
-            echo "  - Address critical issues before deployment"
-            echo "  - Consider hardware upgrades if possible"
+            echo "Docker: Not installed"
         fi
+        echo ""
+        
+        echo "Network Information:"
+        echo "-------------------"
+        echo "IP Address: $(hostname -I | awk '{print $1}')"
+        echo "Internet: $(ping -c 1 8.8.8.8 >/dev/null 2>&1 && echo "Available" || echo "Not available")"
+        echo ""
         
     } > "$report_file"
     
     log_info "Compatibility report saved to: $report_file"
 }
 
-# Main compatibility check function
-perform_compatibility_check() {
-    log_info "Starting Raspberry Pi compatibility check..."
+# Provide optimization recommendations
+provide_recommendations() {
+    log_info "Optimization Recommendations:"
+    echo "=============================="
     
-    # Detect hardware
-    detect_raspberry_pi
+    local arch
+    arch=$(uname -m)
     
-    # Run compatibility checks
-    check_arm64_compatibility
-    check_memory_requirements
-    check_storage_requirements
-    check_docker_compatibility
-    check_network_configuration
+    # Architecture-specific recommendations
+    case "$arch" in
+        "aarch64"|"arm64")
+            echo "✅ ARM64 Architecture Recommendations:"
+            echo "  - Use ARM64-specific Docker images when available"
+            echo "  - Enable Docker BuildKit for better ARM64 support"
+            echo "  - Consider using multi-arch images for compatibility"
+            ;;
+        "armv7l"|"armhf")
+            echo "⚠️  ARM32 Architecture Recommendations:"
+            echo "  - Upgrade to Raspberry Pi OS 64-bit if possible"
+            echo "  - Use ARM32-compatible images (may be limited)"
+            echo "  - Consider hardware upgrade to Pi 4 or newer"
+            ;;
+    esac
     
-    # Calculate overall compatibility
-    local total_score=$((ARM64_COMPATIBILITY_SCORE + MEMORY_SCORE + STORAGE_SCORE + DOCKER_SCORE + NETWORK_SCORE))
-    local max_score=110
-    local compatibility_percentage=$((total_score * 100 / max_score))
+    # Memory recommendations
+    local memory_gb
+    memory_gb=$(free -g | awk 'NR==2{print $2}')
+    
+    if [[ $memory_gb -le 2 ]]; then
+        echo ""
+        echo "💾 Memory Optimization (${memory_gb}GB RAM):"
+        echo "  - Enable swap file for memory management"
+        echo "  - Use memory-optimized PiMonitor configuration"
+        echo "  - Consider reducing service memory limits"
+        echo "  - Monitor memory usage regularly"
+    elif [[ $memory_gb -le 4 ]]; then
+        echo ""
+        echo "💾 Memory Management (${memory_gb}GB RAM):"
+        echo "  - Use standard PiMonitor configuration"
+        echo "  - Monitor memory usage during peak loads"
+        echo "  - Consider enabling swap as backup"
+    else
+        echo ""
+        echo "💾 Memory Configuration (${memory_gb}GB RAM):"
+        echo "  - Use full PiMonitor configuration"
+        echo "  - Can increase service memory limits if needed"
+        echo "  - Excellent for development and testing"
+    fi
+    
+    # Storage recommendations
+    local root_device
+    root_device=$(df / | awk 'NR==2{print $1}' | sed 's/[0-9]*$//')
+    
+    if [[ "$root_device" == *"mmcblk"* ]]; then
+        echo ""
+        echo "💽 Storage Optimization (SD Card):"
+        echo "  - Consider using USB 3.0 SSD for better I/O"
+        echo "  - Move Docker data directory to SSD"
+        echo "  - Enable log rotation to prevent SD card wear"
+        echo "  - Use high-quality SD card (Class 10, A2)"
+    else
+        echo ""
+        echo "💽 Storage Configuration (SSD/HDD):"
+        echo "  - Excellent storage performance expected"
+        echo "  - Can use standard retention policies"
+        echo "  - Consider RAID for redundancy if multiple drives"
+    fi
+    
+    # Network recommendations
+    echo ""
+    echo "🌐 Network Optimization:"
+    echo "  - Use wired Ethernet for better stability"
+    echo "  - Configure static IP for consistent access"
+    echo "  - Open firewall ports for external access if needed"
+    echo "  - Consider VPN for secure remote access"
+    
+    # Docker recommendations
+    echo ""
+    echo "🐳 Docker Optimization:"
+    echo "  - Enable Docker daemon logging to journald"
+    echo "  - Configure Docker to start on boot"
+    echo "  - Use Docker Compose v2 for better performance"
+    echo "  - Regular cleanup of unused images and containers"
     
     echo ""
-    log_info "=== Compatibility Summary ==="
-    log_info "Overall Compatibility: $compatibility_percentage% ($total_score/$max_score)"
+}
+
+# Main compatibility check function
+run_compatibility_check() {
+    local errors=0
     
-    if [[ $compatibility_percentage -ge 80 ]]; then
-        log_info "✓ Excellent compatibility - Ready for PiMonitor deployment"
-    elif [[ $compatibility_percentage -ge 60 ]]; then
-        log_warn "⚠ Good compatibility - Some optimizations recommended"
+    show_banner
+    
+    log_info "Running comprehensive Raspberry Pi compatibility check..."
+    echo ""
+    
+    # Run all compatibility checks
+    check_pi_model || ((errors++))
+    echo ""
+    
+    check_architecture || ((errors++))
+    echo ""
+    
+    check_operating_system || ((errors++))
+    echo ""
+    
+    check_docker_compatibility || ((errors++))
+    echo ""
+    
+    check_storage_requirements || ((errors++))
+    echo ""
+    
+    check_network_requirements || ((errors++))
+    echo ""
+    
+    check_arm64_images || ((errors++))
+    echo ""
+    
+    check_system_performance || ((errors++))
+    echo ""
+    
+    # Generate report
+    generate_compatibility_report
+    echo ""
+    
+    # Provide recommendations
+    provide_recommendations
+    echo ""
+    
+    # Summary
+    if [[ $errors -eq 0 ]]; then
+        log_info "🎉 Compatibility check passed! Your system is ready for PiMonitor."
+        log_info "Run './scripts/setup.sh' to begin installation."
+    elif [[ $errors -le 2 ]]; then
+        log_warn "⚠️  Compatibility check completed with $errors warnings."
+        log_warn "Your system should work but may have performance limitations."
+        log_info "Review the recommendations above and run './scripts/setup.sh' to proceed."
     else
-        log_error "✗ Limited compatibility - Address issues before deployment"
+        log_error "❌ Compatibility check failed with $errors errors."
+        log_error "Please address the issues above before installing PiMonitor."
+        return 1
     fi
     
-    # Apply fixes and optimizations if requested
-    if [[ "$FIX_ISSUES" == "true" ]]; then
-        fix_compatibility_issues
-    fi
-    
-    if [[ "$OPTIMIZE" == "true" ]]; then
-        apply_pi_optimizations
-    fi
-    
-    # Generate report if requested
-    if [[ "$GENERATE_REPORT" == "true" ]]; then
-        generate_compatibility_report
-    fi
-    
-    log_info "Raspberry Pi compatibility check completed"
+    return 0
 }
 
 # =============================================================================
@@ -674,16 +625,30 @@ perform_compatibility_check() {
 
 main() {
     # Parse arguments
-    parse_args "$@"
-    
-    # Show banner
-    show_banner
-    
-    # Create necessary directories
-    mkdir -p "$PROJECT_ROOT/logs"
-    
-    # Perform compatibility check
-    perform_compatibility_check
+    case "${1:-}" in
+        -h|--help)
+            echo "Usage: $0 [options]"
+            echo ""
+            echo "Options:"
+            echo "  -h, --help     Show this help message"
+            echo "  -r, --report   Generate detailed compatibility report"
+            echo ""
+            echo "This script checks Raspberry Pi compatibility for PiMonitor."
+            exit 0
+            ;;
+        -r|--report)
+            generate_compatibility_report "detailed-pi-compatibility-report.txt"
+            exit 0
+            ;;
+        "")
+            run_compatibility_check
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            echo "Use -h or --help for usage information"
+            exit 1
+            ;;
+    esac
 }
 
 # Run main function

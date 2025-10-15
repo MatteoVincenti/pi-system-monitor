@@ -3,13 +3,13 @@
 # Comprehensive deployment management with environment selection and health monitoring
 
 # Source shared libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$DEPLOY_SCRIPT_DIR/lib/common.sh"
 # shellcheck source=./lib/docker.sh
-source "$SCRIPT_DIR/lib/docker.sh"
+source "$DEPLOY_SCRIPT_DIR/lib/docker.sh"
 # shellcheck source=./lib/validation.sh
-source "$SCRIPT_DIR/lib/validation.sh"
+source "$DEPLOY_SCRIPT_DIR/lib/validation.sh"
 
 # =============================================================================
 # Deployment Configuration

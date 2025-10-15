@@ -174,12 +174,7 @@ docker_compose_exec() {
         if [[ -f "docker-compose.optional.yml" ]]; then
             compose_files+=("-f" "docker-compose.optional.yml")
         fi
-        if [[ -f "docker-compose.portainer.yaml" ]]; then
-            compose_files+=("-f" "docker-compose.portainer.yaml")
-        fi
-        if [[ -f "docker-compose.watchtower.yaml" ]]; then
-            compose_files+=("-f" "docker-compose.watchtower.yaml")
-        fi
+        # Legacy compose files have been migrated to docker-compose.optional.yml
     fi
     
     log_debug "Executing: docker compose ${compose_files[*]} $*"
