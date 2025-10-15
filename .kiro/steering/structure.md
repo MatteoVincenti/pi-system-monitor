@@ -2,59 +2,68 @@
 inclusion: always
 ---
 
-# Project Structure & Patterns
+# File Structure & Modification Patterns
 
-## File Organization Rules
+## Directory Organization
 
-**Root Level**: Core orchestration files only
-- `docker-compose.yaml`: Main monitoring stack - modify for core service changes
-- `docker-compose.*.yaml`: Optional services - create new files for additional services
-- `.env`: Runtime configuration - never commit, always use `.env.example` as template
+**Root Level Files**
+- `docker-compose.yml`: Main monitoring stack (modify for core services)
+- `docker-compose.*.yml`: Optional services (create new files)
+- `.env.example`: Template for environment variables (always update this)
+- `.env`: Runtime config (NEVER commit, copy from .env.example)
 
 **Configuration Directory (`configs/`)**
-- Mount point for all service configurations
-- Files are read-only mounted into containers
+- Service-specific subdirectories (e.g., `configs/prometheus/`, `configs/grafana/`)
+- Files mounted read-only into containers
 - Changes require container restart to take effect
-- Use service-specific subdirectories for complex configs (e.g., `prometheus/`)
 
 **Scripts Directory (`scripts/`)**
-- Executable scripts must have proper shebang (`#!/bin/bash`)
+- Must include shebang: `#!/bin/bash`
+- Use `set -e` for error handling
 - Interactive scripts use `select` for user input
-- Utility scripts in `utilities/` are non-interactive
-- All scripts should handle errors gracefully
 
-## Docker Compose Patterns
+## Docker Compose File Patterns
 
-**Service Definition Rules**
-- Use `depends_on` for startup ordering
-- Mount configs from `./configs/` as read-only
-- Use named volumes for persistent data
-- All services join `skynet` network
-- Include health checks where supported
+**Required Service Configuration**
+```yaml
+services:
+  servicename:
+    depends_on: [prerequisite-services]
+    volumes:
+      - ./configs/servicename:/config:ro
+      - servicename_data:/data
+    networks:
+      - skynet
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+```
 
-**Environment Variable Conventions**
-- Format: `SERVICENAME_PORT`, `SERVICENAME_TOKEN`
-- Default ports: Grafana (3000), InfluxDB (8086), Prometheus (9090), Loki (3100)
-- Security tokens generated with `openssl rand --hex 32`
+**Volume and Network Declarations**
+```yaml
+volumes:
+  servicename_data:
 
-**Logging Configuration**
-- All services must use Loki Docker driver
-- Format: `driver: loki`, `options: loki-url: http://loki:3100/loki/api/v1/push`
+networks:
+  skynet:
+    driver: bridge
+```
 
-## Modification Guidelines
+## File Modification Workflow
 
 **Adding New Services**
-1. Create separate `docker-compose.SERVICE.yaml` file
+1. Create `docker-compose.SERVICE.yml` file
 2. Add environment variables to `.env.example`
-3. Create config files in `configs/SERVICE/` if needed
-4. Update documentation
+3. Create `configs/SERVICE/` directory if needed
+4. Ensure ARM64 image compatibility
 
-**Configuration Changes**
-- Edit files in `configs/` directory
-- Restart affected containers: `docker compose restart SERVICE`
-- Test changes before committing
+**Configuration Updates**
+1. Edit files in `configs/SERVICE/` directory
+2. Run: `docker compose restart SERVICE`
+3. Verify: `docker compose logs SERVICE`
 
-**Script Modifications**
-- Maintain POSIX compatibility
-- Use `set -e` for error handling
-- Include usage documentation in comments
+**Environment Variable Updates**
+1. Update `.env.example` template
+2. User must copy to `.env` for local use
+3. Follow naming: `SERVICENAME_PORT`, `SERVICENAME_TOKEN`

@@ -2,57 +2,88 @@
 inclusion: always
 ---
 
-# Technology Stack & Technical Constraints
+# PiMonitor Technical Guidelines
 
-## Platform Requirements
-- **Docker Engine**: Required with Docker Compose v2
-- **ARM64 Architecture**: All images must support ARM64 for Raspberry Pi
-- **Grafana Loki Docker Driver**: MUST be installed before starting services
-  ```bash
-  docker plugin install grafana/loki-docker-driver:3.3.2-arm64 --alias loki --grant-all-permissions
-  ```
+## Critical Constraints for AI Assistant
 
-## Service Stack & Versions
-- **Telegraf**: `telegraf:alpine` - System metrics collection
-- **InfluxDB**: `influxdb:alpine` - Time-series database
-- **Prometheus**: `prom/prometheus:latest` - Metrics storage
-- **Grafana**: `grafana/grafana-oss:latest` - Visualization
-- **Loki**: `grafana/loki:latest` - Log aggregation
-- **Alloy**: `grafana/alloy:latest` - Telemetry collection
+**NEVER Do These Actions**
+- Install services on host system (everything runs in Docker containers)
+- Compile or build code (configuration-only changes)
+- Hardcode values in Docker Compose files (use environment variables)
+- Commit `.env` files (only update `.env.example` template)
+- Start services without Loki logging driver configuration
 
-## Configuration Patterns
-- **Environment Variables**: Use `.env` file, never hardcode values
-- **Config Files**: Mount from `./configs/` as read-only volumes
-- **Persistent Data**: Use named Docker volumes for databases
-- **Logging**: ALL services MUST use Loki driver with `loki-url: http://loki:3100/loki/api/v1/push`
+**ALWAYS Do These Actions**
+- Use `docker compose` commands for all service management
+- Mount configs from `./configs/` as read-only volumes
+- Include Loki logging driver in all service definitions
+- Restart containers after configuration changes
+- Use ARM64-compatible Docker images
 
-## Development Constraints
-- **No Compilation**: Configuration-only changes, no code building
-- **Container-Only**: Never install services directly on host
-- **Network**: All services use `skynet` bridge network
-- **Ports**: Use environment variables for port configuration
-- **Security**: Generate tokens with `openssl rand --hex 32`
+## Required Docker Images (ARM64)
 
-## Required Commands for AI Operations
+| Service | Image | Purpose |
+|---------|-------|---------|
+| Telegraf | `telegraf:alpine` | System metrics collection |
+| InfluxDB | `influxdb:alpine` | Time-series database |
+| Prometheus | `prom/prometheus:latest` | Metrics storage |
+| Grafana | `grafana/grafana-oss:latest` | Visualization dashboard |
+| Loki | `grafana/loki:latest` | Log aggregation |
+| Alloy | `grafana/alloy:latest` | Telemetry collection |
+
+## Standard Commands for AI to Use
+
+**Service Management**
 ```bash
-# Service lifecycle
-docker compose up -d [service]
+# Start all services
+docker compose up -d
+
+# Start specific service
+docker compose up -d [service-name]
+
+# Restart after config changes (REQUIRED)
+docker compose restart [service-name]
+
+# Stop all services
 docker compose down
-docker compose restart [service]
 
-# Configuration changes (requires restart)
-docker compose restart [service]
+# Check service status
+docker compose ps
 
-# Logs and debugging
-docker compose logs [service]
-docker plugin ls | grep loki
-
-# Environment setup
-cp .env.example .env
+# View service logs
+docker compose logs [service-name] --tail 50
 ```
 
-## File Modification Rules
-- **Docker Compose**: Modify existing services, create new files for optional services
-- **Environment**: Update `.env.example` template, never commit `.env`
-- **Configs**: Edit files in `configs/` directory, restart affected containers
-- **Scripts**: Maintain POSIX compatibility, use `set -e` for error handling
+**Environment Configuration**
+```bash
+# Generate secure tokens (for .env.example updates)
+openssl rand --hex 32
+
+# Validate Loki driver installation
+docker plugin ls | grep loki
+```
+
+## File Modification Patterns
+
+**Adding New Services**
+1. Create `docker-compose.[service].yml` for optional services
+2. Add environment variables to `.env.example` (never `.env`)
+3. Create `configs/[service]/` directory if needed
+4. Ensure ARM64 image compatibility
+
+**Configuration Updates**
+1. Edit files in `./configs/[service]/` directory
+2. Run `docker compose restart [service]` to apply changes
+3. Verify with `docker compose logs [service]`
+
+**Environment Variables**
+- Naming pattern: `SERVICENAME_PORT`, `SERVICENAME_TOKEN`
+- Default ports: Grafana (3000), InfluxDB (8086), Prometheus (9090), Loki (3100)
+- Generate tokens: `openssl rand --hex 32`
+
+## Network Architecture
+
+- **Network Name**: `skynet` (bridge driver)
+- **Inter-service Communication**: `http://servicename:port`
+- **External Access**: Only through environment-configured ports
+- **Logging**: All services use Loki driver with URL `http://loki:3100/loki/api/v1/push`
