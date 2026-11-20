@@ -1,0 +1,657 @@
+#!/bin/bash
+
+# PiMonitor Main Management Interface
+# Interactive menu system for managing PiMonitor services
+
+set -e
+
+# Determine script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+
+# Override SCRIPT_DIR for library sourcing to avoid path conflicts
+LIB_SCRIPT_DIR="$SCRIPT_DIR"
+
+# Source shared libraries
+# shellcheck source=./scripts/lib/common.sh
+source "$LIB_SCRIPT_DIR/scripts/lib/common.sh"
+# shellcheck source=./scripts/lib/branding.sh
+source "$LIB_SCRIPT_DIR/scripts/lib/branding.sh"
+# shellcheck source=./scripts/lib/docker.sh
+source "$LIB_SCRIPT_DIR/scripts/lib/docker.sh"
+
+# Configuration
+readonly PIMONITOR_VERSION="2.0.0"
+readonly MENU_TIMEOUT=30
+
+# Initialize branding system
+init_branding
+
+# =============================================================================
+# Menu Functions
+# =============================================================================
+
+# Main menu
+main_menu() {
+    while true; do
+        clear
+        show_pimonitor_logo
+        
+        echo -e "${WHITE}${BOLD}Main Menu${NC}"
+        show_separator
+        
+        local options=(
+            "Deployment Operations"
+            "Configuration Management" 
+            "System Operations"
+            "Maintenance Tasks"
+            "View System Status"
+            "Exit"
+        )
+        
+        echo "Please select an option:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1) deployment_menu; break ;;
+                2) configuration_menu; break ;;
+                3) system_menu; break ;;
+                4) maintenance_menu; break ;;
+                5) show_system_status; break ;;
+                6) 
+                    echo
+                    show_info "Thank you for using PiMonitor!"
+                    exit 0
+                    ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-6."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Deployment operations menu
+deployment_menu() {
+    while true; do
+        clear
+        show_compact_header "Deployment Operations"
+        
+        local options=(
+            "Start Services"
+            "Stop Services"
+            "Restart Services"
+            "Deploy Configuration"
+            "Update Services"
+            "Back to Main Menu"
+        )
+        
+        echo "Select deployment operation:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1) 
+                    show_progress "Starting PiMonitor services"
+                    if "$SCRIPT_DIR/scripts/deploy.sh" start; then
+                        show_success "Services started successfully"
+                    else
+                        show_error "Failed to start services"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    show_progress "Stopping PiMonitor services"
+                    if "$SCRIPT_DIR/scripts/deploy.sh" stop; then
+                        show_success "Services stopped successfully"
+                    else
+                        show_error "Failed to stop services"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                3)
+                    show_progress "Restarting PiMonitor services"
+                    if "$SCRIPT_DIR/scripts/deploy.sh" restart; then
+                        show_success "Services restarted successfully"
+                    else
+                        show_error "Failed to restart services"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                4)
+                    show_progress "Deploying configuration"
+                    if "$SCRIPT_DIR/scripts/deploy.sh" start -e production; then
+                        show_success "Configuration deployed successfully"
+                    else
+                        show_error "Failed to deploy configuration"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                5)
+                    show_progress "Updating services"
+                    if "$SCRIPT_DIR/scripts/deploy.sh" update; then
+                        show_success "Services updated successfully"
+                    else
+                        show_error "Failed to update services"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                6) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-6."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Configuration management menu
+configuration_menu() {
+    while true; do
+        clear
+        show_compact_header "Configuration Management"
+        
+        local options=(
+            "Generate Secrets"
+            "Validate Configuration"
+            "Manage Environment"
+            "Edit Configuration Files"
+            "Show Current Config"
+            "Back to Main Menu"
+        )
+        
+        echo "Select configuration operation:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1)
+                    show_progress "Generating secrets"
+                    if "$SCRIPT_DIR/scripts/generate-secrets.sh"; then
+                        show_success "Secrets generated successfully"
+                    else
+                        show_error "Failed to generate secrets"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    show_progress "Validating configuration"
+                    if "$SCRIPT_DIR/scripts/validate-config.sh"; then
+                        show_success "Configuration is valid"
+                    else
+                        show_error "Configuration validation failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                3)
+                    environment_submenu
+                    break
+                    ;;
+                4)
+                    show_progress "Opening configuration manager"
+                    "$SCRIPT_DIR/scripts/config-manager.sh"
+                    pause_for_user
+                    break
+                    ;;
+                5)
+                    show_progress "Loading current configuration"
+                    "$SCRIPT_DIR/scripts/deploy.sh" config
+                    pause_for_user
+                    break
+                    ;;
+                6) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-6."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Environment management submenu
+environment_submenu() {
+    while true; do
+        clear
+        show_compact_header "Environment Management"
+        
+        local current_env="${ENVIRONMENT:-development}"
+        echo -e "Current Environment: ${GREEN}${current_env}${NC}"
+        echo
+        
+        local options=(
+            "Switch to Development"
+            "Switch to Production"
+            "Switch to Staging"
+            "Include Optional Services"
+            "Back to Configuration Menu"
+        )
+        
+        echo "Select environment option:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1)
+                    export ENVIRONMENT="development"
+                    show_success "Switched to development environment"
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    export ENVIRONMENT="production"
+                    show_success "Switched to production environment"
+                    pause_for_user
+                    break
+                    ;;
+                3)
+                    export ENVIRONMENT="staging"
+                    show_success "Switched to staging environment"
+                    pause_for_user
+                    break
+                    ;;
+                4)
+                    export INCLUDE_OPTIONAL="true"
+                    show_success "Optional services will be included"
+                    pause_for_user
+                    break
+                    ;;
+                5) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-5."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# System operations menu
+system_menu() {
+    while true; do
+        clear
+        show_compact_header "System Operations"
+        
+        local options=(
+            "System Validation"
+            "Docker Cleanup"
+            "View Service Logs"
+            "Real-time Log Monitoring"
+            "Service Health Check"
+            "Back to Main Menu"
+        )
+        
+        echo "Select system operation:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1)
+                    show_progress "Running system validation"
+                    if "$SCRIPT_DIR/scripts/system-validation.sh"; then
+                        show_success "System validation completed"
+                    else
+                        show_error "System validation failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    show_progress "Running Docker cleanup"
+                    if "$SCRIPT_DIR/scripts/docker-cleanup.sh"; then
+                        show_success "Docker cleanup completed"
+                    else
+                        show_error "Docker cleanup failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                3)
+                    logs_submenu
+                    break
+                    ;;
+                4)
+                    show_info "Starting real-time log monitoring (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/logs.sh" -f
+                    pause_for_user
+                    break
+                    ;;
+                5)
+                    show_progress "Checking service health"
+                    "$SCRIPT_DIR/scripts/deploy.sh" status
+                    pause_for_user
+                    break
+                    ;;
+                6) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-6."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Logs submenu
+logs_submenu() {
+    while true; do
+        clear
+        show_compact_header "Service Logs"
+        
+        local options=(
+            "All Services"
+            "Grafana"
+            "InfluxDB"
+            "Prometheus"
+            "Loki"
+            "Alloy"
+            "Telegraf"
+            "Back to System Menu"
+        )
+        
+        echo "Select service to view logs:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1)
+                    show_info "Showing logs for all services (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/logs.sh"
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    show_info "Showing Grafana logs (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/deploy.sh" logs grafana
+                    pause_for_user
+                    break
+                    ;;
+                3)
+                    show_info "Showing InfluxDB logs (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/deploy.sh" logs influxdb
+                    pause_for_user
+                    break
+                    ;;
+                4)
+                    show_info "Showing Prometheus logs (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/deploy.sh" logs prometheus
+                    pause_for_user
+                    break
+                    ;;
+                5)
+                    show_info "Showing Loki logs (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/deploy.sh" logs loki
+                    pause_for_user
+                    break
+                    ;;
+                6)
+                    show_info "Showing Alloy logs (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/deploy.sh" logs alloy
+                    pause_for_user
+                    break
+                    ;;
+                7)
+                    show_info "Showing Telegraf logs (Press Ctrl+C to exit)"
+                    "$SCRIPT_DIR/scripts/deploy.sh" logs telegraf
+                    pause_for_user
+                    break
+                    ;;
+                8) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-8."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Maintenance tasks menu
+maintenance_menu() {
+    while true; do
+        clear
+        show_compact_header "Maintenance Tasks"
+        
+        local options=(
+            "Backup System"
+            "Restore System"
+            "System Cleanup"
+            "Compatibility Check"
+            "System Maintenance"
+            "Back to Main Menu"
+        )
+        
+        echo "Select maintenance task:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1)
+                    show_progress "Creating system backup"
+                    if "$SCRIPT_DIR/scripts/backup.sh"; then
+                        show_success "System backup completed"
+                    else
+                        show_error "System backup failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    backup_restore_submenu
+                    break
+                    ;;
+                3)
+                    show_progress "Running system cleanup"
+                    if "$SCRIPT_DIR/scripts/system-cleanup.sh"; then
+                        show_success "System cleanup completed"
+                    else
+                        show_error "System cleanup failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                4)
+                    show_progress "Running compatibility check"
+                    if "$SCRIPT_DIR/scripts/pi-compatibility-check.sh"; then
+                        show_success "Compatibility check completed"
+                    else
+                        show_error "Compatibility check failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                5)
+                    show_progress "Running system maintenance"
+                    if "$SCRIPT_DIR/scripts/system-maintenance.sh"; then
+                        show_success "System maintenance completed"
+                    else
+                        show_error "System maintenance failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                6) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-6."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Backup restore submenu
+backup_restore_submenu() {
+    while true; do
+        clear
+        show_compact_header "Backup & Restore"
+        
+        echo "Available backups:"
+        if [[ -d "$PROJECT_ROOT/backups" ]]; then
+            ls -1 "$PROJECT_ROOT/backups/" 2>/dev/null || echo "No backups found"
+        else
+            echo "No backup directory found"
+        fi
+        echo
+        
+        local options=(
+            "Create New Backup"
+            "Restore from Backup"
+            "List Backup Details"
+            "Back to Maintenance Menu"
+        )
+        
+        echo "Select backup operation:"
+        echo
+        
+        select choice in "${options[@]}"; do
+            case $REPLY in
+                1)
+                    read -p "Enter backup name (or press Enter for auto-generated): " backup_name
+                    show_progress "Creating backup: ${backup_name:-auto-generated}"
+                    if "$SCRIPT_DIR/scripts/deploy.sh" backup "$backup_name"; then
+                        show_success "Backup created successfully"
+                    else
+                        show_error "Backup creation failed"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                2)
+                    read -p "Enter backup name to restore: " backup_name
+                    if [[ -n "$backup_name" ]]; then
+                        show_warning "This will overwrite current data!"
+                        read -p "Are you sure? (y/N): " confirm
+                        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                            show_progress "Restoring from backup: $backup_name"
+                            if "$SCRIPT_DIR/scripts/deploy.sh" restore "$backup_name"; then
+                                show_success "Restore completed successfully"
+                            else
+                                show_error "Restore failed"
+                            fi
+                        else
+                            show_info "Restore cancelled"
+                        fi
+                    else
+                        show_error "Backup name required"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                3)
+                    read -p "Enter backup name to inspect: " backup_name
+                    if [[ -n "$backup_name" ]] && [[ -f "$PROJECT_ROOT/backups/$backup_name/manifest.txt" ]]; then
+                        echo
+                        cat "$PROJECT_ROOT/backups/$backup_name/manifest.txt"
+                    else
+                        show_error "Backup not found or no manifest available"
+                    fi
+                    pause_for_user
+                    break
+                    ;;
+                4) return ;;
+                *)
+                    show_error "Invalid selection. Please choose 1-4."
+                    echo
+                    ;;
+            esac
+        done
+    done
+}
+
+# Show system status
+show_system_status() {
+    clear
+    show_compact_header "System Status"
+    
+    show_progress "Loading system status"
+    "$SCRIPT_DIR/scripts/deploy.sh" status
+    
+    echo
+    pause_for_user
+}
+
+# =============================================================================
+# Utility Functions
+# =============================================================================
+
+# Pause for user input
+pause_for_user() {
+    echo
+    read -p "Press Enter to continue..." -r
+}
+
+# Handle script interruption
+cleanup() {
+    echo
+    show_info "PiMonitor management interface interrupted"
+    exit 0
+}
+
+# =============================================================================
+# Main Function
+# =============================================================================
+
+main() {
+    # Set up signal handlers
+    trap cleanup SIGINT SIGTERM
+    
+    # Check if running with arguments (non-interactive mode)
+    if [[ $# -gt 0 ]]; then
+        case "$1" in
+            --help|-h)
+                show_pimonitor_logo
+                echo "PiMonitor Management Interface"
+                echo
+                echo "Usage:"
+                echo "  $0           # Interactive menu mode"
+                echo "  $0 --help    # Show this help"
+                echo "  $0 --version # Show version"
+                echo
+                echo "For direct command execution, use:"
+                echo "  ./scripts/deploy.sh <command>"
+                echo "  ./scripts/setup.sh"
+                echo "  ./maintenance.sh"
+                echo "  ./utilities.sh"
+                exit 0
+                ;;
+            --version|-v)
+                show_pimonitor_logo
+                exit 0
+                ;;
+            *)
+                show_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    fi
+    
+    # Validate prerequisites
+    if [[ ! -f "$PROJECT_ROOT/.env" ]]; then
+        show_warning "Environment file not found. Run setup first."
+        read -p "Would you like to run setup now? (y/N): " run_setup
+        if [[ "$run_setup" =~ ^[Yy]$ ]]; then
+            "$SCRIPT_DIR/scripts/setup.sh"
+        else
+            show_error "Setup required before using PiMonitor"
+            exit 1
+        fi
+    fi
+    
+    # Start main menu
+    main_menu
+}
+
+# Run main function
+main "$@"

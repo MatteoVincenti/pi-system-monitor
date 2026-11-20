@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "name": "Documentation Sync",
+  "description": "Monitors configuration files, scripts, and Docker compose files for changes and automatically updates documentation in README.md or creates/updates docs in a /docs folder",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "configs/**/*.*",
+      "scripts/**/*.*",
+      "docker-compose*.yaml",
+      "*.sh",
+      "*.conf",
+      "*.yml",
+      "*.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source files have been modified in this PiMonitor Docker observability stack. Please review the changes and update the documentation accordingly. If there's no /docs folder, create one and organize documentation there. Update the README.md with any new services, configuration changes, or setup instructions. Focus on practical documentation that helps users understand the monitoring stack setup, service dependencies, and configuration patterns. Don't write utility documentation - focus on user-facing features and setup guidance."
+  }
+}

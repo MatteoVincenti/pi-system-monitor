@@ -1,2 +1,19 @@
 .env
 .DS_Store
+
+# Persistent data directories
+data/
+
+# Secrets and sensitive files
+secrets/*.txt
+secrets/*.key
+secrets/*.pem
+secrets/*.crt
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.log

@@ -26,9 +26,8 @@ prompt_service() {
 
 # Prompt user to select additional services to start
 echo "Select additional services to start:"
-prompt_service "homarr" "$PROJECT_ROOT/docker-compose.homarr.yaml"
-prompt_service "portainer" "$PROJECT_ROOT/docker-compose.portainer.yaml"
-prompt_service "watchtower" "$PROJECT_ROOT/docker-compose.watchtower.yaml"
+# Optional services are now managed through docker-compose.optional.yml
+# Use ./scripts/deploy.sh start -o to include optional services
 
 echo "Starting services with compose files: ${compose_files[*]}"
 start_services "${compose_files[@]}"

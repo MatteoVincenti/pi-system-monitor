@@ -25,8 +25,7 @@ stop_service_if_running() {
 echo "Stopping all services..."
 docker compose -f $PROJECT_ROOT/docker-compose.yaml down
 
-stop_service_if_running "watchtower" "$PROJECT_ROOT/docker-compose.watchtower.yaml"
-stop_service_if_running "portainer" "$PROJECT_ROOT/docker-compose.portainer.yaml"
-stop_service_if_running "homarr" "$PROJECT_ROOT/docker-compose.homarr.yaml"
+# Optional services are now managed through docker-compose.optional.yml
+# Use ./scripts/deploy.sh stop to stop all services including optional ones
 
 echo "Shutdown complete."
