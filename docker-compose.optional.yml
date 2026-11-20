@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Optional services that can be deployed alongside the core monitoring stack
 services:
   portainer:
